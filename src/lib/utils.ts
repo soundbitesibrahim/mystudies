@@ -119,3 +119,32 @@ export function parseNumberOrNull(raw: string): number | null {
 export function pluralize(n: number, one: string, many = `${one}s`): string {
   return n === 1 ? one : many;
 }
+
+/** "3 days ago", "today", "in 5 days" — for last-studied and due dates. */
+export function relativeDays(iso: string | null): string {
+  if (!iso || !isValidISODate(iso)) return 'never';
+  const days = daysUntil(iso);
+  if (days === 0) return 'today';
+  if (days === 1) return 'tomorrow';
+  if (days === -1) return 'yesterday';
+  if (days > 0) return `in ${days} days`;
+  const ago = Math.abs(days);
+  if (ago < 30) return `${ago} days ago`;
+  const months = Math.round(ago / 30);
+  return `${months} ${months === 1 ? 'month' : 'months'} ago`;
+}
+
+/** Days since an ISO date, or null when it never happened. */
+export function daysSince(iso: string | null): number | null {
+  if (!iso || !isValidISODate(iso)) return null;
+  return -daysUntil(iso);
+}
+
+/** Case-insensitive substring match used by the global search. */
+export function matches(haystack: string, needle: string): boolean {
+  return haystack.toLowerCase().includes(needle.toLowerCase());
+}
+
+export function titleCase(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}

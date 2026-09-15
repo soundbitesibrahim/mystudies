@@ -20,7 +20,19 @@ export type IconName =
   | 'chevron-right'
   | 'refresh'
   | 'info'
-  | 'spark';
+  | 'spark'
+  | 'layers'
+  | 'repeat'
+  | 'calendar'
+  | 'search'
+  | 'menu'
+  | 'play'
+  | 'pause'
+  | 'skip'
+  | 'snooze'
+  | 'arrow-up'
+  | 'arrow-down'
+  | 'chevron-left';
 
 const PATHS: Record<IconName, React.ReactNode> = {
   gauge: (
@@ -127,6 +139,75 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <path d="M12 3.5 13.9 9l5.6 1.9-5.6 1.9L12 18.5l-1.9-5.7L4.5 11 10.1 9z" />
     </>
   ),
+  layers: (
+    <>
+      <path d="m12 3.5 8 4.5-8 4.5-8-4.5z" />
+      <path d="m4 12 8 4.5 8-4.5" />
+      <path d="m4 16.5 8 4.5 8-4.5" />
+    </>
+  ),
+  repeat: (
+    <>
+      <path d="M4.5 10a5.5 5.5 0 0 1 5.5-5.5h9" />
+      <path d="m16 1.5 3 3-3 3" />
+      <path d="M19.5 14a5.5 5.5 0 0 1-5.5 5.5H5" />
+      <path d="m8 22.5-3-3 3-3" />
+    </>
+  ),
+  calendar: (
+    <>
+      <rect x="3.5" y="5" width="17" height="15.5" rx="2" />
+      <path d="M3.5 9.5h17" />
+      <path d="M8 3v4" />
+      <path d="M16 3v4" />
+    </>
+  ),
+  search: (
+    <>
+      <circle cx="11" cy="11" r="6.5" />
+      <path d="m16 16 4.5 4.5" />
+    </>
+  ),
+  menu: (
+    <>
+      <path d="M4 7h16" />
+      <path d="M4 12h16" />
+      <path d="M4 17h16" />
+    </>
+  ),
+  play: <path d="M7.5 4.8 19 12 7.5 19.2z" />,
+  pause: (
+    <>
+      <path d="M9 5v14" />
+      <path d="M15 5v14" />
+    </>
+  ),
+  skip: (
+    <>
+      <path d="M6 5.5 15 12l-9 6.5z" />
+      <path d="M18.5 5v14" />
+    </>
+  ),
+  snooze: (
+    <>
+      <circle cx="12" cy="13" r="7.5" />
+      <path d="M12 9.5V13l2.5 1.5" />
+      <path d="M9 2.5h6" />
+    </>
+  ),
+  'arrow-up': (
+    <>
+      <path d="M12 19V5" />
+      <path d="m6 11 6-6 6 6" />
+    </>
+  ),
+  'arrow-down': (
+    <>
+      <path d="M12 5v14" />
+      <path d="m6 13 6 6 6-6" />
+    </>
+  ),
+  'chevron-left': <path d="M14.5 5.5 8 12l6.5 6.5" />,
 };
 
 interface IconProps extends React.SVGProps<SVGSVGElement> {

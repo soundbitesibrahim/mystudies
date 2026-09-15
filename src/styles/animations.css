@@ -1,4 +1,4 @@
-/* Motion. Fast, restrained, and fully disabled under prefers-reduced-motion. */
+/* Motion: brief, functional, fully disabled under prefers-reduced-motion. */
 
 @keyframes fade-in {
   from {
@@ -12,18 +12,7 @@
 @keyframes fade-up {
   from {
     opacity: 0;
-    transform: translate3d(0, 10px, 0);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-@keyframes fade-down {
-  from {
-    opacity: 0;
-    transform: translate3d(0, -8px, 0);
+    transform: translate3d(0, 6px, 0);
   }
   to {
     opacity: 1;
@@ -34,7 +23,7 @@
 @keyframes page-in {
   from {
     opacity: 0;
-    transform: translate3d(0, 12px, 0) scale(0.995);
+    transform: translate3d(0, 8px, 0);
   }
   to {
     opacity: 1;
@@ -43,20 +32,16 @@
 }
 
 @keyframes page-out {
-  from {
-    opacity: 1;
-    transform: none;
-  }
   to {
     opacity: 0;
-    transform: translate3d(0, -6px, 0) scale(0.997);
+    transform: translate3d(0, -4px, 0);
   }
 }
 
 @keyframes modal-in {
   from {
     opacity: 0;
-    transform: translate3d(0, 14px, 0) scale(0.97);
+    transform: translate3d(0, 10px, 0) scale(0.985);
   }
   to {
     opacity: 1;
@@ -65,20 +50,16 @@
 }
 
 @keyframes modal-out {
-  from {
-    opacity: 1;
-    transform: none;
-  }
   to {
     opacity: 0;
-    transform: translate3d(0, 6px, 0) scale(0.985);
+    transform: translate3d(0, 4px, 0) scale(0.99);
   }
 }
 
 @keyframes toast-in {
   from {
     opacity: 0;
-    transform: translate3d(16px, 6px, 0) scale(0.96);
+    transform: translate3d(12px, 0, 0);
   }
   to {
     opacity: 1;
@@ -89,103 +70,69 @@
 @keyframes toast-out {
   to {
     opacity: 0;
-    transform: translate3d(20px, 0, 0) scale(0.96);
+    transform: translate3d(14px, 0, 0);
   }
 }
 
-@keyframes rise-bar {
+@keyframes collapse-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, -3px, 0);
+  }
   to {
-    transform: scaleY(1);
+    opacity: 1;
+    transform: none;
   }
 }
-
-@keyframes pulse-attention {
-  0% {
-    box-shadow: 0 0 0 0 var(--pulse-color, var(--accent-soft));
-  }
-  70% {
-    box-shadow: 0 0 0 7px transparent;
-  }
-  100% {
-    box-shadow: 0 0 0 0 transparent;
-  }
-}
-
-@keyframes flash-row {
-  0% {
-    background-color: var(--accent-soft);
-  }
-  100% {
-    background-color: transparent;
-  }
-}
-
-/* ------------------------------ applied motion ---------------------------- */
 
 .page-transition {
-  animation: page-in 320ms var(--ease-out) both;
+  animation: page-in 260ms var(--ease-out) both;
 }
 
 .page-transition--leaving {
-  animation: page-out 130ms var(--ease-in-out) both;
+  animation: page-out 110ms var(--ease) both;
 }
 
-/* Staggered entrance. Elements set --i to their index. */
 .enter {
-  animation: fade-up 420ms var(--ease-out) both;
-  animation-delay: calc(var(--i, 0) * 45ms);
+  animation: fade-up 320ms var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 32ms);
 }
 
 .enter--fast {
-  animation: fade-up 300ms var(--ease-out) both;
-  animation-delay: calc(var(--i, 0) * 28ms);
+  animation: fade-up 240ms var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 18ms);
 }
 
 .enter-fade {
-  animation: fade-in 320ms var(--ease) both;
-  animation-delay: calc(var(--i, 0) * 40ms);
+  animation: fade-in 260ms var(--ease) both;
 }
 
-.enter-down {
-  animation: fade-down 280ms var(--ease-out) both;
+.topic-list {
+  animation: collapse-in 200ms var(--ease-out) both;
 }
 
 .modal-backdrop {
-  animation: fade-in 170ms var(--ease) both;
+  animation: fade-in 150ms var(--ease) both;
 }
 
 .modal {
-  animation: modal-in 260ms var(--ease-out) both;
+  animation: modal-in 220ms var(--ease-out) both;
 }
 
 .modal-backdrop--closing {
-  animation: fade-in 150ms var(--ease) reverse both;
+  animation: fade-in 140ms var(--ease) reverse both;
 }
 
 .modal-backdrop--closing .modal {
-  animation: modal-out 150ms var(--ease-in-out) both;
+  animation: modal-out 140ms var(--ease) both;
 }
 
 .toast {
-  animation: toast-in 280ms var(--ease-out) both;
+  animation: toast-in 240ms var(--ease-out) both;
 }
 
 .toast--closing {
-  animation: toast-out 190ms var(--ease-in-out) both;
-}
-
-/* A subject whose priority just changed gets one calm pulse. */
-.priority-changed {
-  animation: pulse-attention 900ms var(--ease-out) 1;
-}
-
-.row-updated {
-  animation: flash-row 900ms var(--ease-out) 1;
-}
-
-/* Number roll-ups get a soft emphasis while counting. */
-.counting {
-  transition: color var(--t-base) var(--ease);
+  animation: toast-out 170ms var(--ease) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -196,9 +143,5 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
-  }
-
-  .focus-card::before {
-    transform: scaleY(1);
   }
 }

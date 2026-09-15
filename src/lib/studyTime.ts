@@ -1,36 +1,45 @@
-/** Study-time aggregation. Totals only — deliberately not a timetable. */
+/** Study-time aggregation and balance. Totals only — not a timetable. */
 
-import type { StudyLog, Subject } from './types';
+import type { StudySession, Subject } from './types';
 import { addDays, fromISODate, startOfWeek, sum, toISODate } from './utils';
 
-export interface WeekTotals {
+export interface PeriodTotals {
   thisWeek: number;
   lastWeek: number;
   change: number;
+  thisMonth: number;
+  last30: number;
+  previous30: number;
   thisWeekStart: string;
   lastWeekStart: string;
 }
 
-function minutesBetween(logs: StudyLog[], startISO: string, endISOExclusive: string): number {
-  return sum(
-    logs
-      .filter((l) => l.date >= startISO && l.date < endISOExclusive)
-      .map((l) => l.minutes),
-  );
+function minutesBetween(sessions: StudySession[], startISO: string, endExclusive: string): number {
+  return sum(sessions.filter((s) => s.date >= startISO && s.date < endExclusive).map((s) => s.minutes));
 }
 
-export function weekTotals(logs: StudyLog[], weekStartsOn: 'mon' | 'sun'): WeekTotals {
-  const thisStart = startOfWeek(new Date(), weekStartsOn);
+export function periodTotals(sessions: StudySession[], weekStartsOn: 'mon' | 'sun'): PeriodTotals {
+  const now = new Date();
+  const thisStart = startOfWeek(now, weekStartsOn);
   const lastStart = addDays(thisStart, -7);
   const nextStart = addDays(thisStart, 7);
 
-  const thisWeek = minutesBetween(logs, toISODate(thisStart), toISODate(nextStart));
-  const lastWeek = minutesBetween(logs, toISODate(lastStart), toISODate(thisStart));
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+
+  const thisWeek = minutesBetween(sessions, toISODate(thisStart), toISODate(nextStart));
+  const lastWeek = minutesBetween(sessions, toISODate(lastStart), toISODate(thisStart));
+
+  const last30Start = toISODate(addDays(now, -29));
+  const prev30Start = toISODate(addDays(now, -59));
 
   return {
     thisWeek,
     lastWeek,
     change: thisWeek - lastWeek,
+    thisMonth: minutesBetween(sessions, toISODate(monthStart), toISODate(monthEnd)),
+    last30: minutesBetween(sessions, last30Start, toISODate(addDays(now, 1))),
+    previous30: minutesBetween(sessions, prev30Start, last30Start),
     thisWeekStart: toISODate(thisStart),
     lastWeekStart: toISODate(lastStart),
   };
@@ -39,57 +48,63 @@ export function weekTotals(logs: StudyLog[], weekStartsOn: 'mon' | 'sun'): WeekT
 export interface SubjectMinutes {
   subjectId: string;
   minutes: number;
-  /** 0-1 share of the period total. */
   share: number;
 }
 
-/** Minutes per subject over the last `days` days (inclusive of today). */
+function distribute(
+  sessions: StudySession[],
+  subjects: Subject[],
+): { rows: SubjectMinutes[]; total: number } {
+  const total = sum(sessions.map((s) => s.minutes));
+  const rows = subjects
+    .map((subject) => {
+      const minutes = sum(sessions.filter((s) => s.subjectId === subject.id).map((s) => s.minutes));
+      return { subjectId: subject.id, minutes, share: total ? minutes / total : 0 };
+    })
+    .sort((a, b) => b.minutes - a.minutes);
+  return { rows, total };
+}
+
 export function minutesBySubject(
-  logs: StudyLog[],
+  sessions: StudySession[],
   subjects: Subject[],
   days: number,
 ): { rows: SubjectMinutes[]; total: number } {
   const from = toISODate(addDays(new Date(), -(days - 1)));
-  const scoped = logs.filter((l) => l.date >= from);
-  const total = sum(scoped.map((l) => l.minutes));
-
-  const rows = subjects
-    .map((s) => {
-      const minutes = sum(scoped.filter((l) => l.subjectId === s.id).map((l) => l.minutes));
-      return { subjectId: s.id, minutes, share: total ? minutes / total : 0 };
-    })
-    .sort((a, b) => b.minutes - a.minutes);
-
-  return { rows, total };
+  return distribute(sessions.filter((s) => s.date >= from), subjects);
 }
 
-/** Minutes per subject within the current week. */
 export function minutesBySubjectThisWeek(
-  logs: StudyLog[],
+  sessions: StudySession[],
   subjects: Subject[],
   weekStartsOn: 'mon' | 'sun',
 ): { rows: SubjectMinutes[]; total: number } {
-  const start = toISODate(startOfWeek(new Date(), weekStartsOn));
-  const end = toISODate(addDays(startOfWeek(new Date(), weekStartsOn), 7));
-  const scoped = logs.filter((l) => l.date >= start && l.date < end);
-  const total = sum(scoped.map((l) => l.minutes));
-  const rows = subjects
-    .map((s) => {
-      const minutes = sum(scoped.filter((l) => l.subjectId === s.id).map((l) => l.minutes));
-      return { subjectId: s.id, minutes, share: total ? minutes / total : 0 };
-    })
-    .sort((a, b) => b.minutes - a.minutes);
-  return { rows, total };
+  const start = startOfWeek(new Date(), weekStartsOn);
+  const startISO = toISODate(start);
+  const endISO = toISODate(addDays(start, 7));
+  return distribute(
+    sessions.filter((s) => s.date >= startISO && s.date < endISO),
+    subjects,
+  );
 }
 
-export function totalMinutes(logs: StudyLog[]): number {
-  return sum(logs.map((l) => l.minutes));
+/** Minutes logged per day over the last `days` days, oldest first. */
+export function dailyMinutes(sessions: StudySession[], days: number): Array<{ date: string; minutes: number }> {
+  const out: Array<{ date: string; minutes: number }> = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const date = toISODate(addDays(new Date(), -i));
+    out.push({ date, minutes: sum(sessions.filter((s) => s.date === date).map((s) => s.minutes)) });
+  }
+  return out;
 }
 
-export function sortLogsByDateDesc(logs: StudyLog[]): StudyLog[] {
-  return [...logs].sort((a, b) => {
+export function totalMinutes(sessions: StudySession[]): number {
+  return sum(sessions.map((s) => s.minutes));
+}
+
+export function sortSessionsByDateDesc(sessions: StudySession[]): StudySession[] {
+  return [...sessions].sort((a, b) => {
     const diff = fromISODate(b.date).getTime() - fromISODate(a.date).getTime();
-    if (diff !== 0) return diff;
-    return b.createdAt.localeCompare(a.createdAt);
+    return diff !== 0 ? diff : b.createdAt.localeCompare(a.createdAt);
   });
 }

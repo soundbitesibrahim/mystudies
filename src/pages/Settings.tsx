@@ -1,4 +1,4 @@
-/** Theme, subject management, backup and reset. Nothing decorative. */
+/** Theme, grading, recommendation preferences, subjects and your data. */
 
 import React, { useRef, useState } from 'react';
 import { useActions, useDerived, useStore } from '../state/store';
@@ -6,24 +6,27 @@ import { useUi } from '../state/ui';
 import { Button, IconButton } from '../components/ui/Button';
 import { Segmented } from '../components/ui/Segmented';
 import { EmptyState } from '../components/ui/EmptyState';
-import { BackupDialog, type BackupMode } from '../components/forms/BackupDialog';
 import { useToast } from '../components/ui/Toast';
+import { BackupDialog, type BackupMode } from '../components/forms/BackupDialog';
 import {
+  BACKUP_KEY,
+  DATA_VERSION,
   canPersist,
   exportFileName,
   parseImport,
   serialiseExport,
-  DATA_VERSION,
 } from '../lib/storage';
+import { DEFAULT_THRESHOLDS, GRADES, sortThresholds } from '../lib/grades';
+import { DEFAULT_INTERVALS } from '../lib/revision';
 import type { ThemePreference } from '../lib/types';
-import { formatMinutes, pluralize } from '../lib/utils';
+import { clamp, formatMinutes, pluralize } from '../lib/utils';
 
 export function SettingsPage() {
   const { data, saveError } = useStore();
   const derived = useDerived();
   const actions = useActions();
   const toast = useToast();
-  const { openSubject, askConfirm } = useUi();
+  const ui = useUi();
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [backup, setBackup] = useState<{ open: boolean; mode: BackupMode; reason?: string }>({
@@ -31,10 +34,9 @@ export function SettingsPage() {
     mode: 'copy',
   });
 
-  /**
-   * Embedded pages run sandboxed, where a download the page starts is dropped
-   * without any error. There the backup is offered as copyable text instead.
-   */
+  const settings = data.settings;
+
+  /** Sandboxed pages silently drop downloads, so the text path is the fallback. */
   const downloadsBlocked = (() => {
     try {
       return window.self !== window.top;
@@ -83,9 +85,16 @@ export function SettingsPage() {
         return;
       }
       const { data: imported, report } = result;
-      askConfirm({
+      ui.askConfirm({
         title: 'Replace everything with this backup?',
-        message: `The file holds ${report.subjects} ${pluralize(report.subjects, 'subject')}, ${report.assessments} ${pluralize(report.assessments, 'assessment')}, ${report.studyLogs} study ${pluralize(report.studyLogs, 'log')} and ${report.goals} ${pluralize(report.goals, 'goal')}. Your current data will be replaced.`,
+        message: `The file holds ${report.subjects} ${pluralize(report.subjects, 'subject')}, ${
+          report.topics
+        } ${pluralize(report.topics, 'topic')}, ${report.assessments} ${pluralize(
+          report.assessments,
+          'assessment',
+        )} and ${report.studySessions} study ${pluralize(report.studySessions, 'session')}.${
+          report.migratedFrom ? ` It will be upgraded from version ${report.migratedFrom}.` : ''
+        } Your current data will be replaced.`,
         confirmLabel: 'Import and replace',
         onConfirm: () => {
           actions.replaceData(imported);
@@ -101,66 +110,235 @@ export function SettingsPage() {
     }
   };
 
-  const totalStudy = data.studyLogs.reduce((acc, l) => acc + l.minutes, 0);
+  const setThreshold = (grade: string, value: number) => {
+    actions.updateSettings({
+      gradeThresholds: settings.gradeThresholds.map((t) =>
+        t.grade === grade ? { ...t, min: clamp(value, 0, 100) } : t,
+      ),
+    });
+  };
+
+  const hasLegacyBackup = canPersist && !!window.localStorage.getItem(BACKUP_KEY);
 
   return (
     <div className="page page-transition">
       <div className="stack">
         {saveError && (
-          <div className="panel panel--pad enter" style={{ borderColor: 'var(--bad)' }}>
-            <p className="tone-bad" style={{ fontWeight: 600 }}>
-              {saveError}
-            </p>
-            <p className="muted" style={{ fontSize: '0.85rem', marginTop: 4 }}>
+          <div className="notice enter" style={{ borderColor: 'var(--risk)' }}>
+            <div className="notice__body">
+              <strong className="tone-risk">{saveError}</strong>
+              <br />
               Export your data now so nothing is lost.
-            </p>
+            </div>
           </div>
         )}
 
-        <section className="section enter" style={{ ['--i' as string]: 0 }}>
+        <section className="section enter">
           <div className="section__head">
             <h2>Appearance</h2>
           </div>
           <div className="panel panel--pad">
-            <div className="row row--between row--wrap" style={{ gap: 16 }}>
-              <div>
-                <p style={{ fontWeight: 560 }}>Theme</p>
-                <p className="section__hint">Dark by default. System follows your device.</p>
-              </div>
-              <Segmented<ThemePreference>
-                ariaLabel="Theme"
-                value={data.settings.theme}
-                onChange={(theme) => actions.updateSettings({ theme })}
-                options={[
-                  { value: 'system', label: 'System' },
-                  { value: 'light', label: 'Light' },
-                  { value: 'dark', label: 'Dark' },
-                ]}
-              />
-            </div>
-            <hr className="divider" style={{ margin: '16px 0' }} />
-            <div className="row row--between row--wrap" style={{ gap: 16 }}>
-              <div>
-                <p style={{ fontWeight: 560 }}>Week starts on</p>
-                <p className="section__hint">Used for your weekly study totals.</p>
-              </div>
-              <Segmented<'mon' | 'sun'>
-                ariaLabel="Week starts on"
-                value={data.settings.weekStartsOn}
-                onChange={(weekStartsOn) => actions.updateSettings({ weekStartsOn })}
-                options={[
-                  { value: 'mon', label: 'Monday' },
-                  { value: 'sun', label: 'Sunday' },
-                ]}
-              />
-            </div>
+            <Row
+              title="Theme"
+              hint="Dark by default. System follows your device."
+              control={
+                <Segmented<ThemePreference>
+                  ariaLabel="Theme"
+                  value={settings.theme}
+                  onChange={(theme) => actions.updateSettings({ theme })}
+                  options={[
+                    { value: 'system', label: 'System' },
+                    { value: 'light', label: 'Light' },
+                    { value: 'dark', label: 'Dark' },
+                  ]}
+                />
+              }
+            />
+            <hr className="rule" style={{ margin: '14px 0' }} />
+            <Row
+              title="Week starts on"
+              hint="Used for your weekly study totals."
+              control={
+                <Segmented<'mon' | 'sun'>
+                  ariaLabel="Week starts on"
+                  value={settings.weekStartsOn}
+                  onChange={(weekStartsOn) => actions.updateSettings({ weekStartsOn })}
+                  options={[
+                    { value: 'mon', label: 'Monday' },
+                    { value: 'sun', label: 'Sunday' },
+                  ]}
+                />
+              }
+            />
           </div>
         </section>
 
         <section className="section enter" style={{ ['--i' as string]: 1 }}>
           <div className="section__head">
+            <div>
+              <h2>Grading</h2>
+              <p className="section__hint">
+                The minimum percentage for each grade. Changing these re-grades every figure in the app.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              icon="refresh"
+              onClick={() => actions.updateSettings({ gradeThresholds: [...DEFAULT_THRESHOLDS] })}
+            >
+              Reset to default
+            </Button>
+          </div>
+          <div className="panel panel--pad">
+            <div className="form-grid">
+              {sortThresholds(settings.gradeThresholds).map((threshold) => (
+                <div className="field" key={threshold.grade}>
+                  <label className="field__label" htmlFor={`grade-${threshold.grade}`}>
+                    Grade {threshold.grade}
+                    <span className="field__hint">minimum %</span>
+                  </label>
+                  <input
+                    id={`grade-${threshold.grade}`}
+                    className="input"
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={threshold.min}
+                    disabled={threshold.grade === 'F'}
+                    onChange={(e) => setThreshold(threshold.grade, Number(e.target.value))}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="section enter" style={{ ['--i' as string]: 2 }}>
+          <div className="section__head">
+            <div>
+              <h2>Study and recommendations</h2>
+              <p className="section__hint">How the focus engine weighs things, and how long sessions default to.</p>
+            </div>
+          </div>
+          <div className="panel panel--pad">
+            <div className="form-grid">
+              <div className="field">
+                <label className="field__label" htmlFor="default-session">
+                  Default session length
+                  <span className="field__hint">minutes</span>
+                </label>
+                <input
+                  id="default-session"
+                  className="input"
+                  type="number"
+                  min={5}
+                  max={180}
+                  value={settings.defaultSessionMinutes}
+                  onChange={(e) =>
+                    actions.updateSettings({ defaultSessionMinutes: clamp(Number(e.target.value), 5, 180) })
+                  }
+                />
+              </div>
+
+              <div className="field">
+                <label className="field__label" htmlFor="daily-target">
+                  Daily study target
+                  <span className="field__hint">minutes</span>
+                </label>
+                <input
+                  id="daily-target"
+                  className="input"
+                  type="number"
+                  min={0}
+                  max={720}
+                  value={settings.dailyTargetMinutes}
+                  onChange={(e) =>
+                    actions.updateSettings({ dailyTargetMinutes: clamp(Number(e.target.value), 0, 720) })
+                  }
+                />
+              </div>
+
+              <div className="field">
+                <label className="field__label" htmlFor="exam-horizon">
+                  Exam horizon
+                  <span className="field__hint">days before an exam lifts priority</span>
+                </label>
+                <input
+                  id="exam-horizon"
+                  className="input"
+                  type="number"
+                  min={1}
+                  max={365}
+                  value={settings.examHorizonDays}
+                  onChange={(e) =>
+                    actions.updateSettings({ examHorizonDays: clamp(Number(e.target.value), 1, 365) })
+                  }
+                />
+              </div>
+
+              <div className="field">
+                <label className="field__label" htmlFor="weakness-bias">
+                  Weakness bias
+                  <span className="spacer" />
+                  <span className="num">{settings.weaknessBias}</span>
+                </label>
+                <input
+                  id="weakness-bias"
+                  className="slider"
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={settings.weaknessBias}
+                  style={{ ['--fill' as string]: `${settings.weaknessBias}%` }}
+                  onChange={(e) => actions.updateSettings({ weaknessBias: Number(e.target.value) })}
+                />
+                <span className="field__hint">
+                  Higher pushes weak topics further up the list; lower spreads recommendations out.
+                </span>
+              </div>
+
+              <div className="field span-2">
+                <label className="field__label" htmlFor="revision-intervals">
+                  Revision intervals
+                  <span className="field__hint">days between reviews, comma separated</span>
+                </label>
+                <input
+                  id="revision-intervals"
+                  className="input"
+                  defaultValue={settings.revisionIntervals.join(', ')}
+                  onBlur={(e) => {
+                    const parsed = e.target.value
+                      .split(',')
+                      .map((v) => Math.round(Number(v.trim())))
+                      .filter((n) => Number.isFinite(n) && n > 0 && n <= 365);
+                    actions.updateSettings({
+                      revisionIntervals: parsed.length ? parsed : [...DEFAULT_INTERVALS],
+                    });
+                    toast.info('Revision intervals updated');
+                  }}
+                />
+              </div>
+
+              <div className="field span-2">
+                <label className="row" style={{ gap: 8, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={settings.includeNotStarted}
+                    onChange={(e) => actions.updateSettings({ includeNotStarted: e.target.checked })}
+                  />
+                  <span style={{ fontSize: '0.875rem' }}>
+                    Recommend topics you have not started yet
+                  </span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="section enter" style={{ ['--i' as string]: 3 }}>
+          <div className="section__head">
             <h2>Manage subjects</h2>
-            <Button size="sm" icon="plus" onClick={() => openSubject()}>
+            <Button size="sm" icon="plus" onClick={() => ui.openSubject()}>
               Add subject
             </Button>
           </div>
@@ -171,35 +349,34 @@ export function SettingsPage() {
                 title="No subjects yet"
                 text="Add your subjects to begin tracking your academic status."
                 actionLabel="Add subject"
-                onAction={() => openSubject()}
+                onAction={() => ui.openSubject()}
               />
             ) : (
               data.subjects.map((subject, i) => {
                 const view = derived.bySubjectId.get(subject.id);
                 return (
-                  <div
-                    key={subject.id}
-                    className="list-row enter--fast"
-                    style={{ ['--i' as string]: i }}
-                  >
+                  <div key={subject.id} className="list-row enter--fast" style={{ ['--i' as string]: i }}>
                     <span className="list-row__main">
-                      <span className="cell-name">{subject.name}</span>
+                      <span className="cell-name">
+                        {subject.name}
+                        {subject.code && <span className="mono faint"> {subject.code}</span>}
+                      </span>
                       <span className="cell-sub">
-                        {view?.assessments.count ?? 0}{' '}
-                        {pluralize(view?.assessments.count ?? 0, 'assessment')} ·{' '}
+                        {view?.topics.length ?? 0} {pluralize(view?.topics.length ?? 0, 'topic')} ·{' '}
+                        {view?.assessments.length ?? 0} {pluralize(view?.assessments.length ?? 0, 'assessment')} ·{' '}
                         {formatMinutes(view?.totalMinutes ?? 0)} logged
                       </span>
                     </span>
                     <span className="list-row__side" style={{ gap: 2 }}>
-                      <IconButton icon="edit" label={`Edit ${subject.name}`} onClick={() => openSubject(subject)} />
+                      <IconButton icon="edit" label={`Edit ${subject.name}`} onClick={() => ui.openSubject(subject)} />
                       <IconButton
                         icon="trash"
                         label={`Delete ${subject.name}`}
                         onClick={() =>
-                          askConfirm({
+                          ui.askConfirm({
                             title: `Delete ${subject.name}?`,
                             message:
-                              'This also removes its assessments, study time and goals. This cannot be undone.',
+                              'This also removes its syllabus, assessments, study sessions, goals and exams. This cannot be undone.',
                             confirmLabel: 'Delete subject',
                             onConfirm: () => actions.deleteSubject(subject.id),
                           })
@@ -213,35 +390,31 @@ export function SettingsPage() {
           </div>
         </section>
 
-        <section className="section enter" style={{ ['--i' as string]: 2 }}>
+        <section className="section enter" style={{ ['--i' as string]: 4 }}>
           <div className="section__head">
             <div>
               <h2>Your data</h2>
               <p className="section__hint">
-                Everything is stored on this device only. Export regularly to keep a backup.
+                Stored on this device only. No account, no backend, nothing leaves your browser.
               </p>
             </div>
           </div>
           <div className="panel panel--pad">
-            <div className="grid grid--4" style={{ marginBottom: 18 }}>
+            <div className="grid grid--4" style={{ marginBottom: 16 }}>
               <Stat label="Subjects" value={String(data.subjects.length)} />
+              <Stat label="Topics" value={String(data.topics.length)} />
               <Stat label="Assessments" value={String(data.assessments.length)} />
-              <Stat label="Study sessions" value={String(data.studyLogs.length)} />
-              <Stat label="Total logged" value={formatMinutes(totalStudy)} />
+              <Stat label="Sessions" value={String(data.studySessions.length)} />
             </div>
 
-            <div className="row row--wrap" style={{ gap: 9 }}>
+            <div className="row row--wrap" style={{ gap: 8 }}>
               <Button icon="download" onClick={exportData}>
                 Export data
               </Button>
               <Button icon="upload" disabled={busy} onClick={() => fileRef.current?.click()}>
                 Import data
               </Button>
-              <button
-                type="button"
-                className="link-btn"
-                onClick={() => setBackup({ open: true, mode: 'paste' })}
-              >
+              <button type="button" className="link-btn" onClick={() => setBackup({ open: true, mode: 'paste' })}>
                 or paste a backup
               </button>
               <span className="spacer" />
@@ -249,10 +422,10 @@ export function SettingsPage() {
                 variant="danger"
                 icon="refresh"
                 onClick={() =>
-                  askConfirm({
+                  ui.askConfirm({
                     title: 'Reset everything?',
                     message:
-                      'Every subject, assessment, study session and goal will be permanently deleted from this device. Export a backup first if you might want it back.',
+                      'Every subject, syllabus topic, assessment, study session, goal and exam will be permanently deleted from this device. Export a backup first if you might want it back.',
                     confirmLabel: 'Delete everything',
                     onConfirm: () => {
                       actions.resetData();
@@ -264,6 +437,13 @@ export function SettingsPage() {
                 Reset data
               </Button>
             </div>
+
+            {hasLegacyBackup && (
+              <p className="faint" style={{ fontSize: '0.719rem', marginTop: 12 }}>
+                A copy of your pre-upgrade data is still kept in this browser under{' '}
+                <span className="mono">{BACKUP_KEY}</span>, in case anything was lost in the upgrade.
+              </p>
+            )}
 
             <input
               ref={fileRef}
@@ -286,7 +466,7 @@ export function SettingsPage() {
           />
         </section>
 
-        <section className="section enter" style={{ ['--i' as string]: 3 }}>
+        <section className="section enter" style={{ ['--i' as string]: 5 }}>
           <div className="section__head">
             <h2>About</h2>
           </div>
@@ -301,18 +481,13 @@ export function SettingsPage() {
             </div>
             <div className="kv">
               <span className="kv__key">Storage</span>
-              <span className="kv__value">
-                {canPersist ? 'Local to this browser' : 'Unavailable in this browser'}
-              </span>
+              <span className="kv__value">{canPersist ? 'Local to this browser' : 'Unavailable'}</span>
             </div>
-            <div className="kv">
-              <span className="kv__key">Accounts</span>
-              <span className="kv__value">None — nothing leaves this device</span>
-            </div>
-            <p className="muted" style={{ fontSize: '0.85rem', marginTop: 14 }}>
-              This app answers three questions: how you are doing overall, which subject needs you
-              most, and whether you are improving. Priorities come from a transparent rule-based
-              engine — every reason shown on My Focus is a rule you can read in the code.
+            <p className="muted" style={{ fontSize: '0.844rem', marginTop: 14, lineHeight: 1.6 }}>
+              Every score, priority and recommendation comes from readable rules over data you
+              entered — see <span className="mono">src/lib/priority.ts</span> and{' '}
+              <span className="mono">src/lib/focus.ts</span>. There is no model involved, and the app
+              never invents a figure: where the evidence is thin it says so.
             </p>
           </div>
         </section>
@@ -321,13 +496,23 @@ export function SettingsPage() {
   );
 }
 
+function Row({ title, hint, control }: { title: string; hint: string; control: React.ReactNode }) {
+  return (
+    <div className="row row--between row--wrap" style={{ gap: 14 }}>
+      <div>
+        <p style={{ fontWeight: 540, fontSize: '0.875rem' }}>{title}</p>
+        <p className="section__hint">{hint}</p>
+      </div>
+      {control}
+    </div>
+  );
+}
+
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div>
-      <p className="metric__label">{label}</p>
-      <p className="num" style={{ fontSize: '1.25rem', fontWeight: 640 }}>
-        {value}
-      </p>
+    <div className="metric">
+      <span className="metric__label">{label}</span>
+      <span className="metric__value">{value}</span>
     </div>
   );
 }

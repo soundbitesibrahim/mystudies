@@ -1,22 +1,25 @@
 /**
- * The priority engine.
+ * Subject priority.
  *
- * Fully rule-based and transparent: every point added to a subject's "needs
- * attention" score comes with a sentence the Focus dashboard can show.
- * No AI, no hidden weighting, no guessing at missing data.
+ * Every point added carries the sentence that explains it, so no priority is
+ * ever shown without a reason the user can read. Rule-based throughout — there
+ * is no model here, and the UI should never imply otherwise.
  */
 
 import type { PriorityLevel, Subject } from './types';
-import type { AssessmentSummary, SubjectHealth, TrendResult } from './scoring';
+import type { PerformanceResult, TrendResult } from './performance';
 import { clamp, round } from './utils';
 
 export type ReasonKind =
-  | 'standing'
   | 'target'
+  | 'performance'
+  | 'mastery'
+  | 'coverage'
   | 'trend'
-  | 'rating'
-  | 'assessment'
+  | 'confidence'
   | 'weakness'
+  | 'exam'
+  | 'revision'
   | 'time'
   | 'data'
   | 'positive';
@@ -24,48 +27,55 @@ export type ReasonKind =
 export interface PriorityReason {
   kind: ReasonKind;
   text: string;
-  /** Points this rule contributed (negative for positive signals). */
   points: number;
 }
 
 export interface PriorityResult {
   subjectId: string;
   level: PriorityLevel;
-  /** 0-100 "needs attention" score. Higher means more urgent. */
   score: number;
   reasons: PriorityReason[];
   overridden: boolean;
+  /** One line suitable for a table cell or badge tooltip. */
+  headline: string;
 }
 
-/** Score thresholds. Tuned so a healthy subject never lands in HIGH. */
 export const PRIORITY_THRESHOLDS = { high: 48, medium: 20 } as const;
 
-export const PRIORITY_META: Record<
-  PriorityLevel,
-  { label: string; short: string; icon: string; blurb: string }
-> = {
-  high: { label: 'High priority', short: 'HIGH', icon: '🔥', blurb: 'Needs significant attention' },
-  medium: { label: 'Medium', short: 'MEDIUM', icon: '⚠️', blurb: 'Needs attention' },
-  maintain: { label: 'Maintain', short: 'MAINTAIN', icon: '✅', blurb: 'Currently strong' },
+export const PRIORITY_META: Record<PriorityLevel, { label: string; short: string; blurb: string }> = {
+  high: { label: 'High', short: 'HIGH', blurb: 'Needs significant attention' },
+  medium: { label: 'Medium', short: 'MEDIUM', blurb: 'Needs attention' },
+  maintain: { label: 'Maintain', short: 'MAINTAIN', blurb: 'Currently strong' },
 };
 
 export const PRIORITY_ORDER: Record<PriorityLevel, number> = { high: 0, medium: 1, maintain: 2 };
 
 export interface PriorityInput {
   subject: Subject;
-  health: SubjectHealth;
+  performance: PerformanceResult;
   trend: TrendResult;
-  assessments: AssessmentSummary;
-  /** Minutes studied for this subject over the recent window. */
+  /** Best available current percentage. */
+  currentPercent: number | null;
+  targetPercent: number | null;
+  /** Mean topic mastery, 0-100. null when the subject has no topics. */
+  mastery: number | null;
+  /** Syllabus coverage, 0-1. null when the subject has no topics. */
+  coverage: number | null;
+  /** Mean coverage across every subject, for a relative comparison. */
+  averageCoverage: number | null;
+  weakTopics: number;
+  overdueRevisions: number;
+  /** Days until this subject's next exam, or null. */
+  daysToExam: number | null;
+  examHorizonDays: number;
+  /** Minutes studied recently for this subject and across all subjects. */
   recentMinutes: number;
-  /** Minutes studied across all subjects over the same window. */
   totalRecentMinutes: number;
-  /** How many subjects share that window. */
   subjectCount: number;
 }
 
 export function computePriority(input: PriorityInput): PriorityResult {
-  const { subject, health, trend, assessments } = input;
+  const { subject } = input;
   const reasons: PriorityReason[] = [];
   let score = 0;
 
@@ -76,101 +86,123 @@ export function computePriority(input: PriorityInput): PriorityResult {
   };
 
   const hasAnySignal =
-    health.score !== null || subject.weakness.trim() !== '' || assessments.count > 0;
+    input.currentPercent !== null ||
+    input.mastery !== null ||
+    input.performance.count > 0 ||
+    subject.weakness.trim() !== '';
 
   if (!hasAnySignal) {
-    const result: PriorityResult = {
+    return {
       subjectId: subject.id,
       level: subject.priorityOverride ?? 'medium',
       score: 30,
       reasons: [
         {
           kind: 'data',
-          text: 'Not enough information yet — add your personal rating or current performance.',
+          text: 'Not enough information yet — record a result or set topic mastery.',
           points: 30,
         },
       ],
       overridden: subject.priorityOverride !== null,
+      headline: 'Not enough information yet.',
     };
-    return result;
   }
 
-  /* 1 — Overall standing deficit (the largest single factor). */
-  if (health.score !== null) {
-    add('standing', standingText(health.score), (100 - health.score) * 0.6);
-  }
-
-  /* 2 — Distance from the target the user set. */
-  if (health.targetGap !== null && health.targetGap > 0) {
-    const pts = Math.min(25, health.targetGap * 1.4);
+  /* 1 — Distance from the target the user set. */
+  const gap =
+    input.currentPercent !== null && input.targetPercent !== null
+      ? round(input.targetPercent - input.currentPercent, 0)
+      : null;
+  if (gap !== null && gap > 0) {
     add(
       'target',
-      `${Math.round(health.targetGap)} points below your target (${Math.round(
-        health.performancePercent ?? 0,
-      )}% now, ${Math.round(health.targetPercent ?? 0)}% wanted).`,
-      pts,
+      `${gap} points below target (${Math.round(input.currentPercent as number)}% now, ${Math.round(
+        input.targetPercent as number,
+      )}% wanted).`,
+      Math.min(26, gap * 1.4),
     );
-  } else if (health.targetGap !== null && health.targetGap <= 0) {
-    add('positive', 'You are already at or above your target.', -6);
+  } else if (gap !== null) {
+    add('positive', 'At or above your target.', -6);
   }
 
-  /* 3 — Direction of travel. */
-  if (trend.direction === 'down') {
+  /* 2 — Where performance actually sits. */
+  if (input.currentPercent !== null && input.currentPercent < 70) {
     add(
-      'trend',
-      `Recent results are declining (${formatDelta(trend.delta)} on earlier assessments).`,
-      18,
+      'performance',
+      `Performance is ${Math.round(input.currentPercent)}%, below a comfortable A/A* range.`,
+      (70 - input.currentPercent) * 0.45,
     );
-  } else if (trend.direction === 'up') {
-    add('positive', `Recent results are improving (${formatDelta(trend.delta)}).`, -8);
   }
 
-  /* 4 — How confident the user feels. */
+  /* 3 — Topic mastery across the syllabus. */
+  if (input.mastery !== null && input.mastery < 70) {
+    add('mastery', `Average topic mastery is only ${Math.round(input.mastery)}%.`, (70 - input.mastery) * 0.35);
+  }
+
+  /* 4 — Syllabus coverage, judged against your other subjects rather than
+        against 100%. Early in the year everything is uncovered; that is not a
+        problem, but falling behind the others is. */
+  if (
+    input.coverage !== null &&
+    input.averageCoverage !== null &&
+    input.coverage < input.averageCoverage - 0.12
+  ) {
+    add(
+      'coverage',
+      `Syllabus coverage (${Math.round(input.coverage * 100)}%) is behind your other subjects (${Math.round(
+        input.averageCoverage * 100,
+      )}% on average).`,
+      Math.min(14, (input.averageCoverage - input.coverage) * 40),
+    );
+  }
+
+  /* 5 — Direction of travel. */
+  if (input.trend.direction === 'down') {
+    add('trend', `Results are declining (${formatDelta(input.trend.delta)}).`, 16);
+  } else if (input.trend.direction === 'up') {
+    add('positive', `Results are improving (${formatDelta(input.trend.delta)}).`, -8);
+  }
+
+  /* 6 — Specific weak topics. */
+  if (input.weakTopics > 0) {
+    add(
+      'weakness',
+      `${input.weakTopics} weak ${input.weakTopics === 1 ? 'topic' : 'topics'} flagged by mastery or results.`,
+      Math.min(14, input.weakTopics * 3),
+    );
+  }
+
+  /* 7 — Review debt. */
+  if (input.overdueRevisions > 0) {
+    add(
+      'revision',
+      `${input.overdueRevisions} ${input.overdueRevisions === 1 ? 'topic is' : 'topics are'} overdue for revision.`,
+      Math.min(12, input.overdueRevisions * 3),
+    );
+  }
+
+  /* 8 — An exam getting close. */
+  if (input.daysToExam !== null && input.daysToExam >= 0 && input.daysToExam <= input.examHorizonDays) {
+    const closeness = 1 - input.daysToExam / Math.max(1, input.examHorizonDays);
+    add(
+      'exam',
+      `Exam in ${input.daysToExam} ${input.daysToExam === 1 ? 'day' : 'days'}.`,
+      round(6 + closeness * 14, 1),
+    );
+  }
+
+  /* 9 — How the user feels about it. */
   if (subject.rating !== null && subject.rating < 60) {
-    add(
-      'rating',
-      `Low personal confidence (you rated yourself ${Math.round(subject.rating)}/100).`,
-      Math.min(18, (60 - subject.rating) * 0.4),
-    );
+    add('confidence', `Low personal confidence (${Math.round(subject.rating)}/100).`, Math.min(14, (60 - subject.rating) * 0.35));
   } else if (subject.rating !== null && subject.rating >= 85) {
-    add('positive', `You feel strong here (rated ${Math.round(subject.rating)}/100).`, -4);
+    add('positive', `You feel strong here (${Math.round(subject.rating)}/100).`, -4);
   }
 
-  /* 5 — The most recent result specifically. */
-  if (assessments.latestPercent !== null && assessments.latest) {
-    const latest = Math.round(assessments.latestPercent);
-    if (latest < 50) {
-      add('assessment', `Latest assessment was weak — ${latest}% on "${assessments.latest.name}".`, 10);
-    } else if (
-      assessments.allTimePercent !== null &&
-      assessments.count >= 2 &&
-      assessments.latestPercent < assessments.allTimePercent - 10
-    ) {
-      add(
-        'assessment',
-        `Latest result (${latest}%) dropped below your average of ${Math.round(
-          assessments.allTimePercent,
-        )}%.`,
-        6,
-      );
-    }
-  }
-
-  /* 6 — A difficulty the user reported themselves. */
-  if (subject.weakness.trim() !== '') {
-    add('weakness', 'You flagged a specific difficulty in this subject.', 6);
-  }
-
-  /* 7 — Study time that does not match the need. Only once there is
-        enough logged time for the comparison to mean anything. */
+  /* 10 — Study time that does not match the need. */
   if (input.totalRecentMinutes >= 120 && input.subjectCount > 1 && score >= 25) {
     const fairShare = input.totalRecentMinutes / input.subjectCount;
     if (input.recentMinutes < fairShare * 0.6) {
-      add(
-        'time',
-        'Getting noticeably less study time than your other subjects.',
-        8,
-      );
+      add('time', 'Getting noticeably less study time than your other subjects.', 8);
     }
   }
 
@@ -183,25 +215,19 @@ export function computePriority(input: PriorityInput): PriorityResult {
         ? 'medium'
         : 'maintain';
 
-  /* Safety net: a genuinely strong, non-declining, on-target subject is
-     never high priority, whatever the arithmetic says. */
+  // A strong, on-target, non-declining subject is never high priority.
   if (
     level === 'high' &&
-    health.score !== null &&
-    health.score >= 80 &&
-    trend.direction !== 'down' &&
-    (health.targetGap === null || health.targetGap <= 0)
+    input.currentPercent !== null &&
+    input.currentPercent >= 82 &&
+    input.trend.direction !== 'down' &&
+    (gap === null || gap <= 0)
   ) {
     level = 'maintain';
   }
 
-  if (level === 'maintain' && reasons.every((r) => r.kind === 'positive')) {
-    reasons.unshift({
-      kind: 'positive',
-      text: 'Strong and steady — keep doing what you are doing.',
-      points: 0,
-    });
-  }
+  const concerns = reasons.filter((r) => r.points > 0).sort((a, b) => b.points - a.points);
+  const headline = concerns[0]?.text ?? reasons[0]?.text ?? 'No concerns flagged.';
 
   return {
     subjectId: subject.id,
@@ -209,37 +235,26 @@ export function computePriority(input: PriorityInput): PriorityResult {
     score,
     reasons,
     overridden: subject.priorityOverride !== null,
+    headline,
   };
-}
-
-function standingText(scoreValue: number): string {
-  if (scoreValue < 50) return `Well below a comfortable standing (${Math.round(scoreValue)}/100).`;
-  if (scoreValue < 70) return `Below where you want to be (${Math.round(scoreValue)}/100).`;
-  if (scoreValue < 85) return `Solid but with room to grow (${Math.round(scoreValue)}/100).`;
-  return `Standing is strong (${Math.round(scoreValue)}/100).`;
 }
 
 function formatDelta(delta: number | null): string {
   if (delta === null) return 'no change';
-  const rounded = round(Math.abs(delta), 1);
-  return `${delta >= 0 ? '+' : '−'}${rounded} pts`;
+  return `${delta >= 0 ? '+' : '−'}${round(Math.abs(delta), 1)} pts`;
 }
 
-/** Ranks subjects by urgency for the Focus dashboard. */
-export function rankByPriority(results: PriorityResult[]): PriorityResult[] {
-  return [...results].sort((a, b) => {
-    const levelDiff = PRIORITY_ORDER[a.level] - PRIORITY_ORDER[b.level];
-    if (levelDiff !== 0) return levelDiff;
-    return b.score - a.score;
+export function rankByPriority<T extends { priority: PriorityResult }>(items: T[]): T[] {
+  return [...items].sort((a, b) => {
+    const diff = PRIORITY_ORDER[a.priority.level] - PRIORITY_ORDER[b.priority.level];
+    return diff !== 0 ? diff : b.priority.score - a.priority.score;
   });
 }
 
-/** Only the reasons worth showing as "Why?" — positives are shown separately. */
 export function concernReasons(result: PriorityResult): PriorityReason[] {
-  return result.reasons.filter((r) => r.points > 0);
+  return result.reasons.filter((r) => r.points > 0).sort((a, b) => b.points - a.points);
 }
 
 export function positiveReasons(result: PriorityResult): PriorityReason[] {
   return result.reasons.filter((r) => r.points <= 0);
 }
-

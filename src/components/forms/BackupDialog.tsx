@@ -70,7 +70,7 @@ export function BackupDialog({ open, mode, reason, onClose }: BackupDialogProps)
     onClose();
     askConfirm({
       title: 'Replace everything with this backup?',
-      message: `This backup holds ${report.subjects} ${pluralize(report.subjects, 'subject')}, ${report.assessments} ${pluralize(report.assessments, 'assessment')}, ${report.studyLogs} study ${pluralize(report.studyLogs, 'log')} and ${report.goals} ${pluralize(report.goals, 'goal')}. Your current data will be replaced.`,
+      message: `This backup holds ${report.subjects} ${pluralize(report.subjects, 'subject')}, ${report.assessments} ${pluralize(report.assessments, 'assessment')}, ${report.studySessions} study ${pluralize(report.studySessions, 'session')} and ${report.goals} ${pluralize(report.goals, 'goal')}. Your current data will be replaced.`,
       confirmLabel: 'Import and replace',
       onConfirm: () => {
         actions.replaceData(imported);

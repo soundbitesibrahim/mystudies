@@ -1,10 +1,11 @@
 # Academic Command Center
 
-A personal academic command center. It answers three questions and nothing else:
+A personal Y9 academic command center. It answers, immediately:
 
-1. **How am I doing overall?**
-2. **What subject needs me most?**
-3. **Am I improving or getting worse?**
+1. **How am I doing overall?** and in every subject
+2. **What topics do I actually know?** and what am I weak at
+3. **What should I study right now — and why?**
+4. **Am I on track for A/A\*?** What exams are coming? Am I improving?
 
 No accounts, no backend, no AI. Everything you enter stays on your own device.
 
@@ -30,55 +31,108 @@ will not work.
 
 ## What it does
 
-**Overview** — your overall standing out of 100, whether it is improving, and a
-table of every subject with its rating, performance, trend and priority.
+**Overview** — overall score, estimated grade against target, syllabus coverage
+and study time; what needs attention; today's plan; the subject table; progress;
+upcoming exams; coach insights. In that order, so the two questions that matter
+are answered without scrolling.
 
-**My Focus** — subjects ranked by how much they need you, each with the specific
-reasons the priority engine used and the difficulty you reported yourself.
+**My Focus** — today's plan plus a ranked list of exactly which topics to study,
+how long for, and the rules behind each one. Start a timed session, add it to
+today, change it, or ignore it.
 
-**Subjects** — add, edit and delete subjects. Personal rating (0-100), current
-performance as a percentage and/or letter grade, targets, and why the subject is
-hard right now. Ratings can be dragged inline and every dashboard recalculates
-immediately.
+**Subjects** — the status table, and a full dashboard per subject: current vs
+target, mastery, syllabus progress, biggest weaknesses, strongest areas, recent
+assessments, study time, why its priority is what it is, and one recommended
+next action.
 
-**Assessments** — test and exam results. Enter score and maximum; the percentage
-and letter grade are calculated and fed into your standing and trend.
+**Syllabus** — subject → chapter → topic, with a mastery state per topic
+(not started / learning / practising / strong / mastered), confidence, difficulty,
+exam importance, notes and your own description of what you struggle with.
+Filter by weak, not started or due for revision; search across everything.
 
-**Study Time** — log a subject, a date and a duration. Shows this week, last
-week, the change, and how your time is split between subjects.
+**Assessments** — results by type (quiz, homework, class test, mock, past paper,
+exam), with an optional per-topic breakdown that feeds topic mastery directly.
 
-**Goals** — a target percentage or grade for one subject or overall, with the gap
-to it tracked for you.
+**Study** — this week, last week, this month, last 30 days, a 28-day trend, and
+how your time splits across subjects — including when you are pouring time into
+a subject that is already fine while a weak one waits.
 
-**Settings** — theme, week start, subject management, export, import and reset.
+**Revision** — spaced review. Studying a topic schedules its next review; a good
+session moves it up the interval ladder, a shaky one moves it back.
+
+**Goals** — grade, percentage, syllabus coverage, weekly study time or an exam
+result, for one subject or overall, with the gap tracked.
+
+**Exams** — countdowns and readiness. Linked topics rise up your focus list as
+the date approaches.
+
+**Settings** — theme, week start, configurable grade thresholds, session length,
+daily target, exam horizon, weakness bias, revision intervals, subject
+management, export, import and reset.
 
 ## How the numbers work
 
-Everything is transparent and rule-based. The two things worth knowing:
+Everything is transparent and rule-based. There is no model anywhere in this
+app, and the UI never implies otherwise.
 
-**Missing information is never counted as zero.** A subject's standing is a
-weighted blend of your personal rating (30%), your recorded performance (35%) and
-your recent assessments (35%). Whichever of those exist are renormalised to 100%,
-and a subject with no information at all reports no score rather than a bad one.
+**Missing information is never counted as zero.** The overall score blends
+assessment performance (55%) and topic mastery (45%), renormalised over whichever
+exists. With no assessments you get a mastery-only score that says so, rather
+than an invented performance figure. Subject performance below three results is
+labelled provisional.
 
-**Priority is a sum of named rules.** Each rule that fires adds points *and* the
-sentence shown on My Focus: how far below a comfortable standing you are, the gap
-to your target, a declining trend, low self-rating, a weak latest result, a
-reported difficulty, and study time that does not match the need. 48+ points is
-high priority, 22+ is medium, below that is maintain. A strong, on-target subject
-that is not declining can never be marked high priority.
+**Syllabus coverage is deliberately not part of the score.** A Y9 student who
+loads a full IGCSE outline has barely covered any of it yet — folding that in
+would report "critical" when their actual results are fine. Coverage is shown
+as its own figure, and in priority it is judged against your *other* subjects
+rather than against 100%.
 
-See `src/lib/scoring.ts` and `src/lib/priority.ts` — the rules are short enough to
-read in full.
+**Mastery blends what you declare with what you score.** A topic's state sets a
+baseline; per-topic assessment results pull it towards the evidence, gaining
+weight as results accumulate (capped at an even split).
+
+**Priority and recommendations are sums of named rules.** Every rule that fires
+adds points *and* the sentence you see on screen — target gap, low mastery, weak
+results, declining trend, overdue revision, an approaching exam, a difficulty you
+flagged, uneven study time. Nothing is ever recommended without a reason you can
+read.
+
+**The engine proposes, you decide.** Every recommendation can be started,
+re-timed, reassigned, reordered, skipped or deleted, and you can add your own
+tasks. Overriding it is recorded, not fought.
+
+See `src/lib/priority.ts`, `src/lib/focus.ts`, `src/lib/mastery.ts` and
+`src/lib/performance.ts` — the rules are short enough to read in full.
+
+## The Y9 syllabus
+
+`src/data/syllabus.ts` seeds an outline for Mathematics (0580), Physics (0625),
+Chemistry (0620), English Language (0500) and Computer Science (0478), taken from
+the published Cambridge IGCSE subject content for each code. Nothing is invented:
+chapters are the numbered subject-content sections, topics are their listed
+subsections.
+
+**It is a starting point, not an authority.** A Y9 scheme of work normally covers
+a subset, in a different order, and your school may name things differently. The
+app says so on the Syllabus page, and every chapter and topic can be renamed,
+reordered, added or deleted. Adding another subject's syllabus means adding an
+entry to that one file — no UI code changes.
 
 ## Your data
 
 Stored in this browser's `localStorage` under the key `acc.data`, as one versioned
 JSON document. It survives refreshes, closing the tab and restarting the browser.
 
+**Version 1 data is migrated, not discarded.** Subjects, assessments, study logs,
+goals and settings from the earlier version are carried forward on first load
+(`studyLogs` become `studySessions`, goals gain a `kind`), and the pre-upgrade
+document is kept under `acc.data.v1.backup` in case anything is needed back.
+
 **Export data** writes a JSON backup file. **Import data** validates and restores
-one, dropping anything malformed rather than failing. **Reset data** clears
-everything on this device.
+one, dropping anything malformed rather than failing. Where a page cannot deliver
+a download — inside a sandboxed embed — the same backup is offered as copyable
+text, with a matching paste-to-restore path. **Reset data** clears everything on
+this device.
 
 The storage layer is isolated in `src/lib/storage.ts`, so cloud sync could replace
 it later without touching the rest of the app.
@@ -87,35 +141,52 @@ it later without touching the rest of the app.
 
 ```
 src/
-  lib/           domain logic, no React
+  data/
+    syllabus.ts    the Y9 syllabus scaffold (edit here to add subjects)
+  lib/             domain logic, no React
     types.ts       the data model
-    grades.ts      letter grade <-> percentage
-    scoring.ts     subject standing, trends, overall status
-    priority.ts    the priority engine
+    grades.ts      configurable grade thresholds
+    mastery.ts     topic mastery states and blending
+    performance.ts assessment performance and trends
+    priority.ts    subject priority, with reasons
+    focus.ts       topic-level recommendations, with reasons
+    revision.ts    spaced review scheduling
+    exams.ts       countdowns and readiness
+    coach.ts       rule-based insights
     goals.ts       goal progress and gaps
-    studyTime.ts   weekly totals and distribution
-    storage.ts     persistence, import/export, validation
+    studyTime.ts   period totals, distribution, daily trend
+    search.ts      global search
+    storage.ts     persistence, migration, import/export, validation
     utils.ts       dates, formatting, numbers
   state/
     store.tsx      reducer, actions, persistence
     derived.ts     every computed value, memoised in one place
-    ui.tsx         current page and global dialogs
+    ui.tsx         current page, subject detail and global dialogs
     theme.ts       theme application, reduced-motion check
   components/
-    ui/            buttons, fields, modal, toasts, indicators
-    forms/         subject, assessment, study log and goal dialogs
-    layout/        sidebar
-  pages/           one file per screen
+    ui/            buttons, fields, modal, toasts, indicators, search
+    forms/         subject, assessment, session, goal, exam, topic, task,
+                   session runner, backup
+    layout/        sidebar and mobile drawer
+  pages/           one file per screen, plus parts/ for shared sections
   styles/          tokens, layout, components, animations
 ```
 
-`Subject.topics` exists in the data model as the extension point for future
-syllabus tracking (subject → syllabus → topic → progress). Nothing in this
-version reads or writes it.
+## Design
+
+Monochrome-first: near-black and off-white grounds, greys, hairline rules and
+restrained type. Colour appears only where it carries meaning — risk, attention,
+strong — and stays desaturated. Dark and light are both first class.
+
+## Responsive
+
+Proper layouts rather than shrunken ones: a fixed rail becomes a drawer, the
+quick actions become icons, and dense tables become stacked records with labels.
+Verified at 390px with no horizontal scroll.
 
 ## Accessibility
 
 Semantic HTML, a real `<label>` on every control, keyboard-navigable dialogs with
-a focus trap and Escape to close, visible focus rings, and full
-`prefers-reduced-motion` support — all animation is disabled when the OS asks for
-it.
+a focus trap and Escape to close, a keyboard-operable subject table, visible focus
+rings, and full `prefers-reduced-motion` support — all animation is disabled when
+the OS asks for it.

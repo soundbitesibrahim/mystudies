@@ -21,7 +21,7 @@ interface ModalProps {
   open: boolean;
   title: string;
   subtitle?: string;
-  size?: 'md' | 'sm';
+  size?: 'md' | 'sm' | 'lg';
   onClose: () => void;
   children: React.ReactNode;
   footer?: React.ReactNode;
@@ -133,7 +133,7 @@ export function Modal({ open, title, subtitle, size = 'md', onClose, children, f
     >
       <div
         ref={panelRef}
-        className={`modal${size === 'sm' ? ' modal--sm' : ''}`}
+        className={`modal${size === 'sm' ? ' modal--sm' : size === 'lg' ? ' modal--lg' : ''}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId.current}
