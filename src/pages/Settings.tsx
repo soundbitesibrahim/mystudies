@@ -6,6 +6,7 @@ import { useUi } from '../state/ui';
 import { Button, IconButton } from '../components/ui/Button';
 import { Segmented } from '../components/ui/Segmented';
 import { EmptyState } from '../components/ui/EmptyState';
+import { BackupDialog, type BackupMode } from '../components/forms/BackupDialog';
 import { useToast } from '../components/ui/Toast';
 import {
   canPersist,
@@ -25,8 +26,32 @@ export function SettingsPage() {
   const { openSubject, askConfirm } = useUi();
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
+  const [backup, setBackup] = useState<{ open: boolean; mode: BackupMode; reason?: string }>({
+    open: false,
+    mode: 'copy',
+  });
+
+  /**
+   * Embedded pages run sandboxed, where a download the page starts is dropped
+   * without any error. There the backup is offered as copyable text instead.
+   */
+  const downloadsBlocked = (() => {
+    try {
+      return window.self !== window.top;
+    } catch {
+      return true;
+    }
+  })();
 
   const exportData = () => {
+    if (downloadsBlocked) {
+      setBackup({
+        open: true,
+        mode: 'copy',
+        reason: 'Downloads are blocked in an embedded page, so here is the backup as text.',
+      });
+      return;
+    }
     try {
       const blob = new Blob([serialiseExport(data)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
@@ -40,7 +65,11 @@ export function SettingsPage() {
       toast.success('Backup downloaded');
     } catch (err) {
       console.error('[export] failed', err);
-      toast.error('Could not create the backup file');
+      setBackup({
+        open: true,
+        mode: 'copy',
+        reason: 'The download could not be created, so here is the backup as text.',
+      });
     }
   };
 
@@ -208,6 +237,13 @@ export function SettingsPage() {
               <Button icon="upload" disabled={busy} onClick={() => fileRef.current?.click()}>
                 Import data
               </Button>
+              <button
+                type="button"
+                className="link-btn"
+                onClick={() => setBackup({ open: true, mode: 'paste' })}
+              >
+                or paste a backup
+              </button>
               <span className="spacer" />
               <Button
                 variant="danger"
@@ -241,6 +277,13 @@ export function SettingsPage() {
               }}
             />
           </div>
+
+          <BackupDialog
+            open={backup.open}
+            mode={backup.mode}
+            reason={backup.reason}
+            onClose={() => setBackup((b) => ({ ...b, open: false }))}
+          />
         </section>
 
         <section className="section enter" style={{ ['--i' as string]: 3 }}>

@@ -309,6 +309,27 @@
   }
 }
 
+/* Narrow screens: the quick actions drop below the page title rather than
+   squeezing it into a column. */
+@media (max-width: 760px) {
+  .topbar {
+    flex-wrap: wrap;
+    row-gap: 10px;
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+
+  .topbar__title {
+    width: 100%;
+  }
+
+  .topbar__actions {
+    margin-left: 0;
+    width: 100%;
+    flex-wrap: wrap;
+  }
+}
+
 @media (max-width: 900px) {
   .app {
     grid-template-columns: 1fr;
